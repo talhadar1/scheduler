@@ -82,6 +82,7 @@ func TestScheduler_RegisterTask(t *testing.T) {
 		tasks                   []RegisterableTask
 		options                 [][]TaskOption
 		expectedRegisteredTasks int32
+		hasNames                []string
 	}{
 		{
 			name:                    "register single task",
@@ -98,6 +99,25 @@ func TestScheduler_RegisterTask(t *testing.T) {
 			},
 			expectedRegisteredTasks: 3,
 		},
+		{
+			name:  "register task with name decorator",
+			tasks: []RegisterableTask{mocks.NewMockTask(1, "")},
+			options: [][]TaskOption{{
+				WithName("test-task"),
+			}},
+			expectedRegisteredTasks: 1,
+			hasNames:                []string{"test-task"},
+		},
+		{
+			name:  "register task with 2 name decorators - last one should be used",
+			tasks: []RegisterableTask{mocks.NewMockTask(1, "test-task")},
+			options: [][]TaskOption{{
+				WithName("test-wrong-name"),
+				WithName("test-correct-name"),
+			}},
+			expectedRegisteredTasks: 1,
+			hasNames:                []string{"test-correct-name"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -112,6 +132,13 @@ func TestScheduler_RegisterTask(t *testing.T) {
 				}
 			}
 			assert.Equal(t, tt.expectedRegisteredTasks, s.registeredTasks.Load())
+			if len(tt.hasNames) > 0 {
+				for i := range tt.tasks {
+					// Pop a task from the taskChan check name
+					tempTask := <-s.taskChan
+					assert.Equal(t, tt.hasNames[i], tempTask.name)
+				}
+			}
 		})
 	}
 }
