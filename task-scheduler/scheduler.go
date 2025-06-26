@@ -19,18 +19,20 @@ type RegisterableTask interface {
 // allowing additional metadata id and name
 // to be wrapped around an inner RegisterableTask.
 type task struct {
-	id    int              // unique identifier for the task
-	name  string           // human-readable name
-	inner RegisterableTask // wrapped RegisterableTask that provides the actual Run logic
+	id     int              // unique identifier for the task
+	name   string           // human-readable name
+	inner  RegisterableTask // wrapped RegisterableTask that provides the actual Run logic
+	logger *log.Logger      // optional logger for Task-specific output
 }
 
 // newTask creates a new task with the given parameters.
 // It initializes the task with an id, name, and an inner RegisterableTask.
 func newTask(inner RegisterableTask, id int, opts ...TaskOption) *task {
 	t := &task{
-		id:    id,
-		name:  fmt.Sprintf("task-%d", id), // default name format
-		inner: inner,
+		id:     id,
+		name:   fmt.Sprintf("task-%d", id), // default name format
+		inner:  inner,
+		logger: nil, // default no logger
 	}
 	// Apply any taskOption to the new task
 	for _, option := range opts {
@@ -54,6 +56,9 @@ func (s *Scheduler) RegisterTask(t RegisterableTask, id int, opts ...TaskOption)
 	task := newTask(t, id, opts...)
 	s.taskChan <- *task
 	s.registeredTasks++
+	if task.logger != nil {
+		task.logger.Printf("Registered Task - ID: %d, Name: %s", task.id, task.name)
+	}
 }
 
 // Scheduler manages task execution with controlled concurrency.
@@ -89,6 +94,10 @@ func (s *Scheduler) RunScheduler() {
 		go func() {
 			defer s.wg.Done()
 			for task := range s.taskChan {
+				if task.logger != nil {
+					task.logger.Printf("🚀 Starting execution of task - ID: %d, Name: %s", task.id, task.name)
+				}
+				// Run the task and handle retries
 				s.ongoingTasks.Add(1)                 // Increment ongoing tasks count
 				err := task.Run(context.Background()) // Execute the task's Run method
 				s.ongoingTasks.Add(-1)                // Decrement ongoing tasks count
@@ -96,6 +105,13 @@ func (s *Scheduler) RunScheduler() {
 					s.failedTasks.Add(1)
 				} else {
 					s.finishedTasks.Add(1)
+				}
+				if task.logger != nil {
+					if err != nil {
+						task.logger.Printf("[task ID:%d] Error: %v", task.id, err)
+					} else {
+						task.logger.Printf("[task ID:%d] Finished successfully", task.id)
+					}
 				}
 			}
 		}()
