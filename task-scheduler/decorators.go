@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 )
 
 // WithLogging creates a task decorator that adds logging functionality.
@@ -22,5 +23,12 @@ func WithName(name string) TaskOption {
 		if task.logger != nil { // Update logger with name if it exists
 			task.logger = log.New(os.Stdout, fmt.Sprintf("task %d (%s): ", task.id, task.name), log.LstdFlags)
 		}
+	}
+}
+
+// WithDelay creates a task decorator that delays execution by the specified duration.
+func WithDelay(delay time.Duration) TaskOption {
+	return func(task *task) {
+		task.delay = delay
 	}
 }

@@ -83,6 +83,7 @@ func TestScheduler_RegisterTask(t *testing.T) {
 		options                 [][]TaskOption
 		expectedRegisteredTasks int32
 		hasNames                []string
+		hasDelays               []time.Duration
 	}{
 		{
 			name:                    "register single task",
@@ -118,6 +119,26 @@ func TestScheduler_RegisterTask(t *testing.T) {
 			expectedRegisteredTasks: 1,
 			hasNames:                []string{"test-correct-name"},
 		},
+		{
+			name:  "register task with delay decorator",
+			tasks: []RegisterableTask{mocks.NewMockTask(1, "")},
+			options: [][]TaskOption{{
+				WithDelay(100 * time.Millisecond),
+			}},
+			expectedRegisteredTasks: 1,
+			hasDelays:               []time.Duration{100 * time.Millisecond},
+		},
+		{
+			name:  "register task with name & delay decorators",
+			tasks: []RegisterableTask{mocks.NewMockTask(1, "")},
+			options: [][]TaskOption{{
+				WithName("test-task"),
+				WithDelay(100 * time.Millisecond),
+			}},
+			expectedRegisteredTasks: 1,
+			hasDelays:               []time.Duration{100 * time.Millisecond},
+			hasNames:                []string{"test-task"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -136,7 +157,16 @@ func TestScheduler_RegisterTask(t *testing.T) {
 				for i := range tt.tasks {
 					// Pop a task from the taskChan check name
 					tempTask := <-s.taskChan
+					s.taskChan <- tempTask // push it back to the channel
 					assert.Equal(t, tt.hasNames[i], tempTask.name)
+				}
+			}
+			if len(tt.hasDelays) > 0 {
+				for i := range tt.tasks {
+					// pop a task from the taskChan check delay
+					tempTask := <-s.taskChan // pop a task from the channel
+					assert.Equal(t, tt.hasDelays[i], tempTask.delay)
+					s.taskChan <- tempTask // push it back to the channel
 				}
 			}
 		})
