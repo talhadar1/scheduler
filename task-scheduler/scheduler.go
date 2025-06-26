@@ -6,6 +6,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const defaultNumOfWorkers = 50 // Default number of workers to run concurrently
@@ -23,6 +24,7 @@ type task struct {
 	name   string           // human-readable name
 	inner  RegisterableTask // wrapped RegisterableTask that provides the actual Run logic
 	logger *log.Logger      // optional logger for Task-specific output
+	delay  time.Duration    // delay duration before execution
 }
 
 // newTask creates a new task with the given parameters.
@@ -33,6 +35,7 @@ func newTask(inner RegisterableTask, id int, opts ...TaskOption) *task {
 		name:   fmt.Sprintf("task-%d", id), // default name format
 		inner:  inner,
 		logger: nil, // default no logger
+		delay:  0,   // default no delay
 	}
 	// Apply any taskOption to the new task
 	for _, option := range opts {
@@ -51,35 +54,48 @@ func (t *task) Run(ctx context.Context) error {
 // It takes an existing RegisterableTask and returns a new, decorated RegisterableTask.
 type TaskOption func(*task)
 
-// RegisterTask submits a Task for execution.
+// RegisterTask submits a task for execution.
 func (s *Scheduler) RegisterTask(t RegisterableTask, id int, opts ...TaskOption) {
 	task := newTask(t, id, opts...)
-	s.taskChan <- *task
 	s.registeredTasks++
 	if task.logger != nil {
-		task.logger.Printf("Registered Task - ID: %d, Name: %s", task.id, task.name)
+		task.logger.Printf("Registered task - ID: %d, Name: %s", task.id, task.name)
+	}
+	if task.delay > 0 {
+		s.currentDelayedTasks.Add(1)
+		if task.logger != nil {
+			task.logger.Printf("⏳ Delaying task - ID: %d for %s", task.id, task.delay)
+		}
+		s.delayer.schedule(*task, time.Now().Add(task.delay))
+	} else {
+		s.taskChan <- *task // Send the task to the channel for immediate execution
 	}
 }
 
 // Scheduler manages task execution with controlled concurrency.
 type Scheduler struct {
-	taskChan        chan task      // channel for tasks to be executed
-	doneChan        chan struct{}  // channel to signal completion of all tasks
-	registeredTasks int            // total number of tasks registered
-	wg              sync.WaitGroup // wait group to synchronize worker goroutines
-	ongoingTasks    atomic.Int32   // count of currently running tasks
-	failedTasks     atomic.Int32   // count of tasks that failed
-	finishedTasks   atomic.Int32   // count of tasks that finished successfully
+	taskChan            chan task        // channel for tasks to be executed
+	doneChan            chan struct{}    // channel to signal completion of all tasks
+	registeredTasks     int              // total number of tasks registered
+	wg                  sync.WaitGroup   // wait group to synchronize worker goroutines
+	ongoingTasks        atomic.Int32     // count of currently running tasks
+	failedTasks         atomic.Int32     // count of tasks that failed
+	finishedTasks       atomic.Int32     // count of tasks that finished successfully
+	delayer             *delayDispatcher // delayDispatcher manages delayed tasks
+	currentDelayedTasks atomic.Int32     // count of currently delayed tasks used by the delayDispatcher
 }
 
 // NewScheduler creates a new Scheduler instance.
 // It initializes the task channel and done channel,
 // and sets the maximum number of concurrent workers.
 func NewScheduler() *Scheduler {
-	return &Scheduler{
+	s := &Scheduler{
 		taskChan: make(chan task, 100),
 		doneChan: make(chan struct{}),
 	}
+	// point dispatcher at the scheduler’s task channel
+	s.delayer = newDelayDispatcher(s.taskChan, s.doneChan, &s.currentDelayedTasks)
+	return s
 }
 
 // RunScheduler starts the main scheduling loop.
@@ -127,6 +143,7 @@ func (s *Scheduler) RunScheduler() {
 // calling Stop() should be done after client has finished registering all tasks,
 // so that the scheduler can process all tasks before closing the task channel.
 func (s *Scheduler) Stop() {
+	s.delayer.wg.Wait() // Wait for all delayed tasks to return to the main task channel
 	log.Println("🔒 Closing task channel; no more tasks will be registered")
 	close(s.taskChan)
 	<-s.doneChan // Wait for the scheduler to finish processing all tasks
