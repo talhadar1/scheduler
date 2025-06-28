@@ -195,3 +195,18 @@ func (s *Scheduler) SchedulerMonitor(d time.Duration) {
 		time.Sleep(d)
 	}
 }
+
+// SummaryReport prints a final tally of tasks.
+// Calling SummaryReport should be after Stop() called, to ensure all tasks have been processed.
+// It provides a summary of the total registered, succeeded, and failed tasks.
+func (s *Scheduler) SummaryReport() {
+	fmt.Println("\n📊 Scheduler Summary Report:")
+	fmt.Printf("Total registered: %d\n", s.registeredTasks.Load())
+	fmt.Printf("Total succeeded:  %d\n", s.finishedTasks.Load())
+	fmt.Printf("Total failed:     %d\n", s.failedTasks.Load())
+	if s.registeredTasks.Load() == s.finishedTasks.Load() {
+		fmt.Println("✅ All tasks completed successfully!")
+	} else {
+		fmt.Println("⚠️ Some tasks did not finish successfully.")
+	}
+}
