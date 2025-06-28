@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -176,5 +177,21 @@ func (s *Scheduler) SetMaxWorkers(maxWorkers int) {
 	} else {
 		s.maxWorkers = maxWorkers
 		log.Printf("✅ Using configured maxWorkers: %d", s.maxWorkers)
+	}
+}
+
+// SchedulerMonitor prints the current status of the Scheduler at client defined intervals (d).
+// It displays the number of ongoing, registered, delayed, finished, and failed tasks, as well as the number of goroutines currently running.
+func (s *Scheduler) SchedulerMonitor(d time.Duration) {
+	const (
+		Cyan  = "\033[36m" // ANSI escape code for cyan color
+		Reset = "\033[0m"  // ANSI escape code to reset color
+	)
+	for {
+		fmt.Printf(
+			Cyan+"🌀 Ongoing: %d | Registered: %d | Delayed: %d | Finished: %d | Failed: %d | Goroutines: %d\n"+Reset,
+			s.ongoingTasks.Load(), s.registeredTasks.Load(), s.currentDelayedTasks.Load(), s.finishedTasks.Load(), s.failedTasks.Load(), runtime.NumGoroutine(),
+		)
+		time.Sleep(d)
 	}
 }
