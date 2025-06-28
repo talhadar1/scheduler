@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -175,5 +176,20 @@ func (s *Scheduler) SetMaxWorkers(maxWorkers int) {
 	} else {
 		s.maxWorkers = maxWorkers
 		log.Printf("✅ Using configured maxWorkers: %d", s.maxWorkers)
+	}
+}
+
+// SchedulerMonitor prints the current status of the Scheduler at client defined intervals.
+func (s *Scheduler) SchedulerMonitor(d time.Duration) {
+	const (
+		Cyan  = "\033[36m"
+		Reset = "\033[0m"
+	)
+	for {
+		fmt.Printf(
+			Cyan+"🌀 Ongoing: %d | Registered: %d | Delayed: %d | Finished: %d | Failed: %d | Goroutines: %d\n"+Reset,
+			s.ongoingTasks.Load(), s.registeredTasks, s.currentDelayedTasks.Load(), s.finishedTasks.Load(), s.failedTasks.Load(), runtime.NumGoroutine(),
+		)
+		time.Sleep(d)
 	}
 }
