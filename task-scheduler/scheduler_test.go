@@ -172,3 +172,86 @@ func TestScheduler_RegisterTask(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduler_RunScheduler_RetryMechanism(t *testing.T) {
+	tests := []struct {
+		name             string
+		description      string
+		task             *mocks.RetryTestTask
+		expectedFinished int32
+		expectedFailed   int32
+		expectedAttempts int
+	}{
+		{
+			name:             "task_succeeds_first_attempt",
+			description:      "Task succeeds immediately, no retries needed",
+			task:             mocks.NewRetryTestTask(1, "success-first", 3, 0), // 0 failures before success
+			expectedFinished: 1,
+			expectedFailed:   0,
+			expectedAttempts: 1,
+		},
+		{
+			name:             "task_succeeds_after_failures",
+			description:      "Task fails twice, succeeds on third attempt",
+			task:             mocks.NewRetryTestTask(2, "success-after-retries", 5, 2), // 2 failures before success
+			expectedFinished: 1,
+			expectedFailed:   0,
+			expectedAttempts: 3,
+		},
+		{
+			name:             "task_fails_all_attempts",
+			description:      "Task fails all retry attempts",
+			task:             mocks.NewRetryTestTask(3, "always-fails", 3, -1), // -1 means always fail
+			expectedFinished: 0,
+			expectedFailed:   1,
+			expectedAttempts: 3,
+		},
+		{
+			name:             "task_succeeds_on_last_attempt",
+			description:      "Task succeeds exactly on the last allowed attempt",
+			task:             mocks.NewRetryTestTask(5, "last-chance-success", 4, 3), // 3 failures, success on 4th
+			expectedFinished: 1,
+			expectedFailed:   0,
+			expectedAttempts: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Logf("Testing: %s", tt.description)
+
+			// ARRANGE: Create scheduler and register task
+			s := NewScheduler()
+			s.RegisterTask(tt.task, 1, WithRetry(tt.task.NumOfRetries))
+
+			// ACT: Run the scheduler
+			schedulerDone := make(chan bool)
+			go func() {
+				defer close(schedulerDone)
+				s.RunScheduler()
+			}()
+
+			// Stop the scheduler after a brief delay
+			go func() {
+				time.Sleep(100 * time.Millisecond) // Allow task to complete
+				s.Stop()
+			}()
+
+			// Wait for scheduler completion
+			<-schedulerDone
+
+			// ASSERT: Verify retry mechanism behavior
+
+			// Verify final task counts
+			assert.Equal(t, tt.expectedFinished, s.finishedTasks.Load(),
+				"Finished task count should match expected")
+			assert.Equal(t, tt.expectedFailed, s.failedTasks.Load(),
+				"Failed task count should match expected")
+
+			// Verify retry attempts
+			assert.Equal(t, tt.expectedAttempts, tt.task.GetAttemptCount(),
+				"Task should be attempted exactly %d times", tt.expectedAttempts)
+
+		})
+	}
+}

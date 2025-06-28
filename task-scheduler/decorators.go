@@ -32,3 +32,14 @@ func WithDelay(delay time.Duration) TaskOption {
 		task.delay = delay
 	}
 }
+
+// WithRetry creates a task decorator that retries the task on failure.
+// It accepts a number of retries, which must be between 1 and 100.
+// If the number of retries is outside this range, it will not change the default value (1).
+func WithRetry(retries int) TaskOption {
+	return func(task *task) {
+		if 1 <= retries && retries <= 100 {
+			task.NumOfRetries = retries
+		}
+	}
+}

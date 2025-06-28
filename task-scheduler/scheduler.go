@@ -20,22 +20,24 @@ type RegisterableTask interface {
 // allowing additional metadata id and name
 // to be wrapped around an inner RegisterableTask.
 type task struct {
-	id     int              // unique identifier for the task
-	name   string           // human-readable name
-	inner  RegisterableTask // wrapped RegisterableTask that provides the actual Run logic
-	logger *log.Logger      // optional logger for Task-specific output
-	delay  time.Duration    // delay duration before execution
+	id           int              // unique identifier for the task
+	name         string           // human-readable name
+	inner        RegisterableTask // wrapped RegisterableTask that provides the actual Run logic
+	logger       *log.Logger      // optional logger for Task-specific output
+	delay        time.Duration    // delay duration before execution
+	NumOfRetries int              // number of times to retry on failure
 }
 
 // newTask creates a new task with the given parameters.
 // It initializes the task with an id, name, and an inner RegisterableTask.
 func newTask(inner RegisterableTask, id int, opts ...TaskOption) *task {
 	t := &task{
-		id:     id,
-		name:   fmt.Sprintf("task-%d", id), // default name format
-		inner:  inner,
-		logger: nil, // default no logger
-		delay:  0,   // default no delay
+		id:           id,
+		name:         fmt.Sprintf("task-%d", id), // default name format
+		inner:        inner,
+		logger:       nil, // default no logger
+		delay:        0,   // default no delay
+		NumOfRetries: 1,   // default no retries
 	}
 	// Apply any taskOption to the new task
 	for _, option := range opts {
@@ -114,13 +116,17 @@ func (s *Scheduler) RunScheduler() {
 					task.logger.Printf("🚀 Starting execution of task - ID: %d, Name: %s", task.id, task.name)
 				}
 				// Run the task and handle retries
-				s.ongoingTasks.Add(1)                 // Increment ongoing tasks count
-				err := task.Run(context.Background()) // Execute the task's Run method
-				s.ongoingTasks.Add(-1)                // Decrement ongoing tasks count
-				if err != nil {
-					s.failedTasks.Add(1)
-				} else {
-					s.finishedTasks.Add(1)
+				var err error
+				for i := 0; i < task.NumOfRetries; i++ {
+					if task.logger != nil {
+						task.logger.Printf("🔄 Attempt %d for task - ID: %d", i+1, task.id)
+					}
+					s.ongoingTasks.Add(1)                // Increment ongoing tasks count
+					err = task.Run(context.Background()) // Execute the task's Run method
+					s.ongoingTasks.Add(-1)               // Decrement ongoing tasks count
+					if err == nil {
+						break // Exit loop if task succeeded
+					}
 				}
 				if task.logger != nil {
 					if err != nil {
@@ -128,6 +134,11 @@ func (s *Scheduler) RunScheduler() {
 					} else {
 						task.logger.Printf("[task ID:%d] Finished successfully", task.id)
 					}
+				}
+				if err != nil {
+					s.failedTasks.Add(1)
+				} else {
+					s.finishedTasks.Add(1)
 				}
 			}
 		}()
