@@ -87,6 +87,7 @@ type Scheduler struct {
 	finishedTasks       atomic.Int32     // Count of tasks that finished successfully
 	delayer             *delayDispatcher // The delayDispatcher manages delayed tasks
 	currentDelayedTasks atomic.Int32     // Count of currently delayed tasks used by the delayDispatcher
+	maxWorkers          int              // Maximum number of concurrent workers
 }
 
 // NewScheduler creates a new Scheduler instance.
@@ -106,9 +107,12 @@ func NewScheduler() *Scheduler {
 // Workers run tasks concurrently, updating the counts of ongoing, finished, and failed tasks.
 // This method is blocking, the client should call it in a separate goroutine.
 func (s *Scheduler) RunScheduler() {
+	if s.maxWorkers == 0 {
+		s.maxWorkers = defaultNumOfWorkers // Set default number of workers if not specified
+	}
+	log.Println("💼 Starting Scheduler with", s.maxWorkers, "workers")
 	// Start workers
-	log.Println("💼 Starting Scheduler with", defaultNumOfWorkers, "workers")
-	for i := 0; i < defaultNumOfWorkers; i++ {
+	for i := 0; i < s.maxWorkers; i++ {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -159,4 +163,18 @@ func (s *Scheduler) Stop() {
 	log.Println("🔒 Closing task channel; no more tasks will be registered")
 	close(s.taskChan)
 	<-s.doneChan // Wait for the scheduler to finish processing all tasks
+}
+
+// SetMaxWorkers configures the maximum number of concurrent tasks.
+// It allows dynamic adjustment of the worker count.
+// If the value is set to less than 1 or above 100, it defaults to the predefined defaultNumOfWorkers.
+// This method should be called before calling RunScheduler()
+func (s *Scheduler) SetMaxWorkers(maxWorkers int) {
+	if maxWorkers <= 0 || 100 < maxWorkers {
+		s.maxWorkers = defaultNumOfWorkers // Set default number of workers if not specified
+		log.Printf("⚠️ Invalid maxWorkers value %d; using default: %d", maxWorkers, defaultNumOfWorkers)
+	} else {
+		s.maxWorkers = maxWorkers
+		log.Printf("✅ Using configured maxWorkers: %d", s.maxWorkers)
+	}
 }
