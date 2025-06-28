@@ -85,6 +85,7 @@ type Scheduler struct {
 	finishedTasks       atomic.Int32     // count of tasks that finished successfully
 	delayer             *delayDispatcher // delayDispatcher manages delayed tasks
 	currentDelayedTasks atomic.Int32     // count of currently delayed tasks used by the delayDispatcher
+	maxWorkers          int              // maximum number of concurrent workers
 }
 
 // NewScheduler creates a new Scheduler instance.
@@ -105,9 +106,12 @@ func NewScheduler() *Scheduler {
 // Workers run tasks concurrently, updating the counts of ongoing, finished, and failed tasks.
 // It uses a mutex to protect access to the Scheduler counters.
 func (s *Scheduler) RunScheduler() {
+	if s.maxWorkers == 0 {
+		s.maxWorkers = defaultNumOfWorkers // Set default number of workers if not specified
+	}
+	log.Println("💼 Starting Scheduler with", s.maxWorkers, "workers")
 	//start workers
-	log.Println("💼 Starting Scheduler with", defaultNumOfWorkers, "workers")
-	for i := 0; i < defaultNumOfWorkers; i++ {
+	for i := 0; i < s.maxWorkers; i++ {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -158,4 +162,18 @@ func (s *Scheduler) Stop() {
 	log.Println("🔒 Closing task channel; no more tasks will be registered")
 	close(s.taskChan)
 	<-s.doneChan // Wait for the scheduler to finish processing all tasks
+}
+
+// SetMaxWorkers configures the maximum number of concurrent tasks.
+// It allows dynamic adjustment of the worker count.
+// If the value is set to 0 or less, it defaults to the predefined defaultNumOfWorkers.
+// This method can be called at any time before or during the execution of tasks.
+func (s *Scheduler) SetMaxWorkers(maxWorkers int) {
+	if maxWorkers <= 0 || 100 < maxWorkers {
+		s.maxWorkers = defaultNumOfWorkers // Set default number of workers if not specified
+		log.Printf("⚠️ Invalid maxWorkers value %d; using default: %d", maxWorkers, defaultNumOfWorkers)
+	} else {
+		s.maxWorkers = maxWorkers
+		log.Printf("✅ Using configured maxWorkers: %d", s.maxWorkers)
+	}
 }
